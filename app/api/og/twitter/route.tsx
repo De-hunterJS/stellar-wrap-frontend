@@ -3,21 +3,54 @@ import { NextRequest } from 'next/server';
 import React from 'react';
 import { parseSharePreviewParams } from '@/app/utils/sharePreviewParams';
 import { logger } from '@/app/utils/logger';
+import en from '@/messages/en.json';
+import es from '@/messages/es.json';
+import fr from '@/messages/fr.json';
 
 const log = logger.child('api:og-twitter');
 
 const CACHE_CONTROL = 'public, s-maxage=86400, stale-while-revalidate=604800';
 
+// Supported locales - must match i18n/routing.ts
+const SUPPORTED_LOCALES = ['en', 'es', 'fr'] as const;
+type SupportedLocale = typeof SUPPORTED_LOCALES[number];
+
+const LOCALE_MESSAGES = { en, es, fr } as const;
+
+/**
+ * Validates and returns a supported locale, falling back to 'en' for invalid values.
+ */
+function validateLocale(requestedLocale: string | null): SupportedLocale {
+  if (!requestedLocale) return 'en';
+  const normalized = requestedLocale.toLowerCase().trim();
+  return SUPPORTED_LOCALES.includes(normalized as SupportedLocale)
+    ? (normalized as SupportedLocale)
+    : 'en';
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const username = searchParams.get('username') || 'StellarUser';
-    const transactions = searchParams.get('transactions') || '0';
-    const persona = searchParams.get('persona') || 'Network Pioneer';
-    const topVibe = searchParams.get('topVibe') || 'Steady';
-    const vibePercentage = searchParams.get('vibePercentage') || '0';
-    const archetypeImagePath = searchParams.get('archetypeImage') ||
-      `/archetypes/${persona.toLowerCase().replace(/^the\s+/, '').replace(/\s+/g, '-')}.png`;
+    const requestedLocale = searchParams.get('locale');
+    const locale = validateLocale(requestedLocale);
+    const messages = LOCALE_MESSAGES[locale];
+    const labels = messages.ShareCard;
+    
+    const {
+      username,
+      transactions,
+      persona,
+      topVibe,
+      vibePercentage,
+      archetypeImage,
+    } = parseSharePreviewParams(searchParams);
+
+    const archetypeImagePath =
+      archetypeImage ??
+      `/archetypes/${persona
+        .toLowerCase()
+        .replace(/^the\s+/, "")
+        .replace(/\s+/g, "-")}.png`;
 
     const baseUrl = req.nextUrl.origin;
     let archetypeImageSrc: string | null = null;
@@ -48,7 +81,7 @@ export async function GET(req: NextRequest) {
             backgroundColor: '#000000',
             backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(5, 64, 32, 0.4) 0%, #000000 80%)',
             color: 'white',
-            fontFamily: 'sans-serif',
+            fontFamily: 'system-ui, sans-serif',
             padding: '40px',
           }}
         >
@@ -135,10 +168,10 @@ export async function GET(req: NextRequest) {
                       marginBottom: '8px',
                     }}
                   >
-                    TRANSACTIONS
+                    {labels.totalTransactions.toUpperCase()}
                   </span>
                   <span style={{ fontSize: '32px', fontWeight: 900, lineHeight: 1 }}>
-                    {transactions}
+                    {String(transactions)}
                   </span>
                 </div>
 
@@ -161,10 +194,10 @@ export async function GET(req: NextRequest) {
                       marginBottom: '8px',
                     }}
                   >
-                    TOP VIBE
+                    {labels.topVibe.toUpperCase()}
                   </span>
                   <span style={{ fontSize: '24px', fontWeight: 900, color: 'white' }}>
-                    {vibePercentage}% {topVibe}
+                    {String(vibePercentage)}% {topVibe}
                   </span>
                 </div>
               </div>
@@ -208,7 +241,9 @@ export async function GET(req: NextRequest) {
       }
     );
 
+    // Include locale in cache headers to ensure different locales don't share cached images
     imageResponse.headers.set('Cache-Control', CACHE_CONTROL);
+    imageResponse.headers.set('Vary', 'locale');
     return imageResponse;
   } catch (e) {
     if (e instanceof Error) {

@@ -2,20 +2,40 @@ import { ImageResponse } from '@vercel/og';
 import { NextRequest } from 'next/server';
 import React from "react";
 import { parseSharePreviewParams } from '@/app/utils/sharePreviewParams';
+import { logger } from '@/app/utils/logger';
 import en from '@/messages/en.json';
 import es from '@/messages/es.json';
 import fr from '@/messages/fr.json';
+
+const log = logger.child('api:og');
 
 export const runtime = 'edge';
 
 const CACHE_CONTROL = 'public, s-maxage=86400, stale-while-revalidate=604800';
 
+// Supported locales - must match i18n/routing.ts
+const SUPPORTED_LOCALES = ['en', 'es', 'fr'] as const;
+type SupportedLocale = typeof SUPPORTED_LOCALES[number];
+
+const LOCALE_MESSAGES = { en, es, fr } as const;
+
+/**
+ * Validates and returns a supported locale, falling back to 'en' for invalid values.
+ */
+function validateLocale(requestedLocale: string | null): SupportedLocale {
+  if (!requestedLocale) return 'en';
+  const normalized = requestedLocale.toLowerCase().trim();
+  return SUPPORTED_LOCALES.includes(normalized as SupportedLocale)
+    ? (normalized as SupportedLocale)
+    : 'en';
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const requestedLocale = searchParams.get('locale');
-    const locale: 'en' | 'es' | 'fr' = requestedLocale === 'es' || requestedLocale === 'fr' ? requestedLocale : 'en';
-    const messages = { en, es, fr }[locale];
+    const locale = validateLocale(requestedLocale);
+    const messages = LOCALE_MESSAGES[locale];
     const labels = messages.ShareCard;
    const {
   username,
@@ -62,7 +82,7 @@ const archetypeImagePath =
             backgroundColor: '#000000',
             backgroundImage: 'radial-gradient(circle at 50% 50%, rgba(5, 64, 32, 0.4) 0%, #000000 80%)',
             color: 'white',
-            fontFamily: 'sans-serif',
+            fontFamily: 'system-ui, sans-serif',
           }}
         >
           <div
@@ -214,7 +234,9 @@ const archetypeImagePath =
       }
     );
 
+    // Include locale in cache headers to ensure different locales don't share cached images
     imageResponse.headers.set('Cache-Control', CACHE_CONTROL);
+    imageResponse.headers.set('Vary', 'locale');
     return imageResponse;
   } catch (e) {
     if (e instanceof Error) {
